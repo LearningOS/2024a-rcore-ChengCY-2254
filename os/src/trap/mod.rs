@@ -14,7 +14,7 @@
 
 mod context;
 
-use crate::syscall::syscall;
+use crate::syscall::{syscall, update_syscall_by_task};
 use crate::task::{exit_current_and_run_next, suspend_current_and_run_next};
 use crate::timer::set_next_trigger;
 use core::arch::global_asm;
@@ -54,7 +54,9 @@ pub fn trap_handler(cx: &mut TrapContext) -> &mut TrapContext {
             // jump to next instruction anyway
             cx.sepc += 4;
             // get system call return value
-            cx.x[10] = syscall(cx.x[17], [cx.x[10], cx.x[11], cx.x[12]]) as usize;
+            let x17 = cx.x[17];
+            update_syscall_by_task(x17);
+            cx.x[10] = syscall(x17, [cx.x[10], cx.x[11], cx.x[12]]) as usize;
         }
         Trap::Exception(Exception::StoreFault) | Trap::Exception(Exception::StorePageFault) => {
             println!("[kernel] PageFault in application, bad addr = {:#x}, bad instruction = {:#x}, kernel killed it.", stval, cx.sepc);

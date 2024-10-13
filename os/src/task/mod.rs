@@ -135,16 +135,31 @@ impl TaskManager {
             panic!("All applications completed!");
         }
     }
+    
+    /// Get current task status
+    fn current_task_status(&self) -> TaskStatus {
+        let inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        inner.tasks[current].task_status
+    }
+    
+    /// Current task id
+    fn current_task_id(&self) -> usize {
+        let inner = self.inner.exclusive_access();
+        inner.current_task
+    }
 }
 
 /// Run the first task in task list.
 pub fn run_first_task() {
+    crate::syscall::update_task_info();
     TASK_MANAGER.run_first_task();
 }
 
 /// Switch current `Running` task to the task we have found,
 /// or there is no `Ready` task and we can exit with all applications completed
 fn run_next_task() {
+    crate::syscall::update_task_info();
     TASK_MANAGER.run_next_task();
 }
 
@@ -168,4 +183,14 @@ pub fn suspend_current_and_run_next() {
 pub fn exit_current_and_run_next() {
     mark_current_exited();
     run_next_task();
+}
+
+/// Get current task status
+pub fn current_task_status() -> TaskStatus {
+    TASK_MANAGER.current_task_status()
+}
+
+/// Get current task id
+pub fn current_task_id() -> usize {
+    TASK_MANAGER.current_task_id()
 }
