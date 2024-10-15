@@ -14,13 +14,15 @@ mod switch;
 #[allow(clippy::module_inception)]
 mod task;
 
-use crate::config::MAX_APP_NUM;
+use crate::config::{MAX_APP_NUM, MAX_SYSCALL_NUM};
 use crate::loader::{get_num_app, init_app_cx};
 use crate::sync::UPSafeCell;
 use lazy_static::*;
 use switch::__switch;
 pub use task::{TaskControlBlock, TaskStatus};
 
+use crate::task::task::TaskInfoInner;
+use crate::timer::get_time_ms;
 pub use context::TaskContext;
 
 /// The task manager, where all the tasks are managed.
@@ -54,6 +56,8 @@ lazy_static! {
         let mut tasks = [TaskControlBlock {
             task_cx: TaskContext::zero_init(),
             task_status: TaskStatus::UnInit,
+            start_time:0,
+            syscall_times:[0;MAX_SYSCALL_NUM]
         }; MAX_APP_NUM];
         for (i, task) in tasks.iter_mut().enumerate() {
             task.task_cx = TaskContext::goto_restore(init_app_cx(i));
@@ -136,30 +140,51 @@ impl TaskManager {
         }
     }
     
-    /// Get current task status
-    fn current_task_status(&self) -> TaskStatus {
-        let inner = self.inner.exclusive_access();
-        let current = inner.current_task;
-        inner.tasks[current].task_status
+    /// Update the first run of time and status
+    fn update_time_ms(&self) {
+        let mut inner = self.inner.exclusive_access();
+        // get current task
+        let task_id = inner.current_task;
+        let task_info = &mut inner.tasks[task_id];
+        // if task_info.start == 0 will update it. unless this task not run  
+        if task_info.start_time == 0 {
+            task_info.start_time = get_time_ms();
+        }
     }
-    
-    /// Current task id
-    fn current_task_id(&self) -> usize {
+
+    /// Save syscall call and count
+    fn update_syscall_counter(&self, syscall_id: usize) {
+        let mut inner = self.inner.exclusive_access();
+        let task_id =inner.current_task;
+        let task_info = &mut inner.tasks[task_id];
+        task_info.syscall_times[syscall_id] += 1
+    }
+
+    /// use syscall [`crate::syscall::process::sys_task_info`] call, get current task infomation
+    fn get_task_info(&self) -> TaskInfoInner {
         let inner = self.inner.exclusive_access();
-        inner.current_task
+        let task_id =inner.current_task;
+        let status = inner.tasks[task_id].task_status;
+        let start = inner.tasks[task_id].start_time;
+        let end = get_time_ms();
+        TaskInfoInner{
+            status,
+            syscall_times: inner.tasks[task_id].syscall_times,
+            time: end-start,
+        }
     }
 }
 
 /// Run the first task in task list.
 pub fn run_first_task() {
-    crate::syscall::update_task_info();
+    update_task_info();
     TASK_MANAGER.run_first_task();
 }
 
 /// Switch current `Running` task to the task we have found,
 /// or there is no `Ready` task and we can exit with all applications completed
 fn run_next_task() {
-    crate::syscall::update_task_info();
+    update_task_info();
     TASK_MANAGER.run_next_task();
 }
 
@@ -185,12 +210,17 @@ pub fn exit_current_and_run_next() {
     run_next_task();
 }
 
-/// Get current task status
-pub fn current_task_status() -> TaskStatus {
-    TASK_MANAGER.current_task_status()
+/// Wapper [`TaskManager::update_time_ms`]
+pub fn update_task_info() {
+    TASK_MANAGER.update_time_ms()
 }
 
-/// Get current task id
-pub fn current_task_id() -> usize {
-    TASK_MANAGER.current_task_id()
+/// Wapper [`TaskManager::update_syscall_counter`]
+pub fn update_syscall_counter(syscall_id: usize) {
+    TASK_MANAGER.update_syscall_counter(syscall_id)
+}
+
+/// Wapper [`TaskManager::get_task_info`]
+pub fn get_task_info() -> TaskInfoInner {
+    TASK_MANAGER.get_task_info()
 }
